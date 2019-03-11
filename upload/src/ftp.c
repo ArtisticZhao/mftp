@@ -23,8 +23,9 @@ unsigned char path_name[300];
 char *fdir(char *fn)
 {
 	//char *path_name = (char*)malloc(300);
-	strcpy(path_name, "/home/lilac/Documents/transfile_test/trans_file/");
-	strcat(path_name, fn);
+	//strcpy(path_name, "/home/bg2dgr/Downloads/");
+	//strcat(path_name, fn);
+	//printf("%s\n", path_name);
 	return path_name;
 }
 
@@ -87,7 +88,7 @@ int file_read(pkg_start_t *tx, int N, int file_order, unsigned char *b_data)
 
 	last_size = tx->f_size - (N-1)*DATA_LEN;
 
-	if(file_order < N){
+	if(file_order < N-1){
         b_size = DATA_LEN;
 	}else{
         b_size = last_size;
@@ -101,10 +102,10 @@ int file_read(pkg_start_t *tx, int N, int file_order, unsigned char *b_data)
 	fclose(fp);
 
 	printf("send data: %d \n", file_order);
-	for(int i = 0; i < b_size; i++) {
+	/*for(int i = 0; i < b_size; i++) {
             printf("%c", buffer[i]);
 	}
-	printf("\n");
+	printf("\n");*/
     printf("b_size: %x \n", b_size);
 
 	b_data[0] = 0xbb;
@@ -175,6 +176,7 @@ void upload_proc(int dst, unsigned char *file_name, uint8_t filename_len, uint32
 	//FILE *fd = fopen(_PATH_NAME_, "wb");
 	while(1)
 	{
+	    START_TRANS:
 		////write(can_socket,frame_tx,filename_len+16+1);
 		upload_packet_send(dst, frame_tx, tx_len);
 		printf("f_size: %x \n", tx_start.f_size);
@@ -185,6 +187,10 @@ void upload_proc(int dst, unsigned char *file_name, uint8_t filename_len, uint32
 		sleep(1);
 
 		len = recv(sockfd, buf, MAX_DATA, 0);
+		if (len<=0){
+            printf("goto START_TRANS!\n");
+            goto START_TRANS;
+		}
 		printf("Received: ");
 		for (int i = 0; i < len; i++ ){
             printf("%x, ", buf[i]);
@@ -261,14 +267,24 @@ void upload_proc(int dst, unsigned char *file_name, uint8_t filename_len, uint32
                         usleep(100000);
                     ////write(can_socket,&loss_data,sizeof(loss_data));
                     }
-
+                    usleep(100000);
+                    ASK_RES:
+                    printf("------>>>>>>ask state\n");
                     upload_packet_send(dst, request_state, 6);
                     len = recv(sockfd, buf, MAX_DATA, 0);
+                    if (len<=0){
+                        printf("goto ASK_RES!\n");
+                        goto ASK_RES;
+                    }
                     usleep(1000);
                     printf("i =  %d\n", i);
 
                 }
             }
+        }
+        else{
+            printf("wrong CRC!\n");
+            goto ASK_RES;
         }
 	}
 }

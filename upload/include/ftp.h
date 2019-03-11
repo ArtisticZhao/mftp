@@ -6,6 +6,8 @@
 #define _NAME_LEN_ 20
 #define FAIL_NUM 10
 
+extern unsigned char path_name[300];
+
 typedef struct pkg_start_t
 {
 	uint8_t head;
