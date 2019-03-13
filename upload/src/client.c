@@ -3,13 +3,13 @@
 #include<stdlib.h>
 #include<errno.h>
 #include<string.h>
-#include<sys/types.h>
+//#include<sys/types.h>
 #include<netinet/in.h>
 #include<sys/socket.h>
 #include<sys/wait.h>
 
 #define DEST_IP "192.168.43.187"/*目标地址IP，这里设为本机*/
-#define MAX_DATA 300//接收到的数据最大程度
+//#define MAX_DATA 500//接收到的数据最大程度
 
 int sockfd,new_fd;/*cocket句柄和接受到连接后的句柄 */
 void load_parms(char **argv, int *port, char *path, int *f_num);  // 读取运行参数
@@ -81,7 +81,7 @@ void main(int argc, char **argv)
 	upload_proc(dst, file_name, len, file_flag);
 
    // close(sockfd);//关闭socket
-    return 0;
+//    return 0;
 }
 
 void load_parms(char **argv, int *port, char *path, int* f_num)

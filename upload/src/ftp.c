@@ -9,17 +9,11 @@
 #include <stdlib.h>
 #include <string.h>
 //#include <errno.h>
+#define PERIOD 100
 
-//#define DATA_LEN 256
-#define _PATH_NAME_ "/home/lilac/Documents/transfile_test/tmp/rx.tmp"
-#define N_ERRO 20
-#define WAIT 0
-#define PACK_LEN 256
-#define MAX_DATA 300
-//#define _NAME_LEN_ 20
-//#define file_name 18121800
 
 unsigned char path_name[300];
+//memset(path_name, 0, 300);
 char *fdir(char *fn)
 {
 	//char *path_name = (char*)malloc(300);
@@ -34,57 +28,87 @@ void ftp_packet_send(unsigned char *data, int len)
 
 }
 
-int file_size(unsigned char *filename, int flag)
+int file_size(unsigned char *filename, uint32_t *crc)
 {
-	unsigned char data[PACK_LEN];
-	uint32_t crc = 0xFFFFFFFF;
-
-	char name;
-	FILE *fp = fopen(fdir(filename),"r");
-	uint32_t size;
+	unsigned char data[DATA_LEN];
+    uint32_t size;
 	uint16_t len;
 	uint16_t N;
+
+	*crc = 0xFFFFFFFF;
+
+	//char name;
+	FILE *fp = fopen(fdir(filename),"r");
+
 	if(fp == NULL ){
 		printf("\nerror on open file!");
 		exit(1);
 	}
 	else{
-            fseek(fp, 0, SEEK_END);
-            size = ftell(fp);
+        fseek(fp, 0, SEEK_END);
+        size = ftell(fp);
 
-		if (flag == 1){
-			fclose(fp);
-			return size;
+        if(size%DATA_LEN == 0)
+            N = size/DATA_LEN;
+        else
+            N = size/DATA_LEN + 1;
 
-		}else{
-		    if(size%PACK_LEN == 0)
-                N = size/PACK_LEN;
-            else
-                N = size/PACK_LEN + 1;
+        for(int i = 0; i < N; i++){
 
-			for(int i = 0; i < N; i++){
+            if (size%DATA_LEN != 0 && i == N - 1){
+                len = size%DATA_LEN;
+            }else
+                len = DATA_LEN;
 
-			    if (size%PACK_LEN != 0 && i == N - 1){
-                    len = size%PACK_LEN;
-                }else
-                    len = PACK_LEN;
+            fseek(fp, i*DATA_LEN, 0);
+            fread(data, 1, len, fp);
 
-                fseek(fp, i*PACK_LEN, 0);
-                fread(data, 1, len, fp);
+            *crc = crc32_calc(data, len, *crc);
+        }
 
-                crc = crc32_calc(data, len, crc);
-			}
-			fclose(fp);
-			return crc;
-		}
+        fclose(fp);
+
 	}
+	return size;
+}
+
+int data_precode(unsigned char *ori_data, int ori_len, unsigned char *return_data)
+{
+
+    int len = 1;
+
+	return_data[0] = 0xc0;
+	for (int i = 0; i < ori_len; i++){
+        if(ori_data[i] == 0xc0){
+            return_data[len] = 0xdb;
+            len++;
+            return_data[len] = 0xdc ;
+            len++;
+        }else if(ori_data[i] == 0xdb ){
+            return_data[len] = 0xdb;
+            len++;
+            return_data[len] = 0xdd ;
+            len++;
+        }else{
+            return_data[len] = ori_data[i];
+            len++;
+        }
+	}
+	return_data[len] = 0xc0;
+	len++;
+
+	return len;
+
 }
 
 int file_read(pkg_start_t *tx, int N, int file_order, unsigned char *b_data)
 {
-
 	int last_size;
 	int b_size;
+
+    unsigned char buffer[DATA_LEN];
+
+    memset(buffer, '\0', sizeof(buffer));
 
 	last_size = tx->f_size - (N-1)*DATA_LEN;
 
@@ -94,19 +118,19 @@ int file_read(pkg_start_t *tx, int N, int file_order, unsigned char *b_data)
         b_size = last_size;
 	}
 
-	char buffer[DATA_LEN];
-
 	FILE *fp = fopen(fdir(tx->f_name),"r");
 	fseek(fp, file_order * tx->b_len, 0);
 	fread(buffer, b_size, 1, fp);
 	fclose(fp);
 
-	printf("send data: %d \n", file_order);
+    //
+
+	//printf("send data: %d \n", file_order);
 	/*for(int i = 0; i < b_size; i++) {
             printf("%c", buffer[i]);
 	}
 	printf("\n");*/
-    printf("b_size: %x \n", b_size);
+   // printf("b_size: %x \n", b_size);
 
 	b_data[0] = 0xbb;
 	memcpy((void*)(b_data + 1), (void*)&(tx->f_number), 4);
@@ -114,7 +138,7 @@ int file_read(pkg_start_t *tx, int N, int file_order, unsigned char *b_data)
 	memcpy((void*)(b_data + 9), (void*)&b_size, 2);
 	memcpy((void*)(b_data + 11), (void*)buffer, b_size);
 	b_data[11+b_size] = packet_crc_calc(b_data, 11 + b_size);
-	b_size = b_size + 12 ;
+	b_size = b_size + 12;
 	return b_size;
 }
 
@@ -128,24 +152,35 @@ void upload_packet_send(int dst, unsigned char *data, int len)
 
 void upload_proc(int dst, unsigned char *file_name, uint8_t filename_len, uint32_t f_number)
 {
-	unsigned char buf[100];
-	memset(buf,'\0',sizeof(buf));
+	unsigned char buf[MAX_DATA];
+
 	pkg_start_t tx_start;
 	pkg_state_t trans_state;
 
 	unsigned char frame_tx[30];
-	unsigned char request_state[6];
+	unsigned char r_frame_tx[30*2];
+	int frame_len;
+	unsigned char ori_request_state[6];
+	unsigned char request_state[12];
+	int state_len;
 	unsigned char data[12+DATA_LEN];
-    uint8_t len = 0;
+	unsigned char data_buf[DATA_LEN*2];
+    int len = 0;
     extern int sockfd,new_fd;
 
-		uint32_t ready_state;
-		uint32_t rx_fnumber;
+    uint32_t ready_state;
 
-		int data_size;
+    int data_size;
+    int s_data_size;
 
     uint32_t loss_N;
     uint32_t loss_OR;
+
+    memset(buf,'\0',sizeof(buf));
+
+    for(int i = 0; i <MAX_DATA; i++ ){
+        buf[i] = 0;
+    }
 
 //file NO.
     memset(&tx_start,0,sizeof(tx_start));
@@ -153,10 +188,8 @@ void upload_proc(int dst, unsigned char *file_name, uint8_t filename_len, uint32
 	tx_start.f_number = f_number;
 	tx_start.name_len = filename_len;
 	memcpy((void*)tx_start.f_name, (void*)file_name, filename_len);
-	tx_start.f_size = file_size(file_name, 1);
-	tx_start.f_crc = file_size(file_name, 0);
+	tx_start.f_size = file_size(file_name, &(tx_start.f_crc));
 	tx_start.b_len = DATA_LEN;
-	//_check_crc(&tx_start, frame_tx);
 
     memcpy((void*)frame_tx, (void*)&(tx_start.head), 1);
 	memcpy((void*)(frame_tx + 1), (void*)&(tx_start.f_number), 4);
@@ -168,34 +201,46 @@ void upload_proc(int dst, unsigned char *file_name, uint8_t filename_len, uint32
 	uint8_t tx_len = tx_start.name_len + 16 + 1;
     frame_tx[tx_len - 1] = packet_crc_calc(frame_tx, tx_len-1);
 
+    frame_len = data_precode(frame_tx, tx_len, r_frame_tx);
+
 //request transmit state
-	request_state[0] = 0xcc;
-	memcpy((void*)(request_state + 1), (void*)&(tx_start.f_number), 4);
-	request_state[5] = packet_crc_calc(request_state, 5);
+	ori_request_state[0] = 0xcc;
+	memcpy((void*)(ori_request_state + 1), (void*)&(tx_start.f_number), 4);
+	ori_request_state[5] = packet_crc_calc(ori_request_state, 5);
+	state_len = data_precode(ori_request_state, 6, request_state);
+
 /////
 	//FILE *fd = fopen(_PATH_NAME_, "wb");
 	while(1)
 	{
-	    START_TRANS:
+	   // START_TRANS:
 		////write(can_socket,frame_tx,filename_len+16+1);
-		upload_packet_send(dst, frame_tx, tx_len);
+		upload_packet_send(dst, r_frame_tx, frame_len);
 		printf("f_size: %x \n", tx_start.f_size);
-		usleep(1000);
+		usleep(10000);
 		////write(can_socket,request_state,sizeof(request_state));
-		upload_packet_send(dst, request_state, 6);
+		upload_packet_send(dst, request_state, state_len);
 
-		sleep(1);
+		//sleep(1);
 
 		len = recv(sockfd, buf, MAX_DATA, 0);
-		if (len<=0){
-            printf("goto START_TRANS!\n");
-            goto START_TRANS;
+
+        printf("0xaa:");
+		for(int i = 0; i < frame_len; i++){
+            printf("%x, ", r_frame_tx[i]);
 		}
-		printf("Received: ");
+		printf("\n");
+
+	    if (len<=0){
+            printf("recall state!\n");
+            usleep(10000);
+            continue;
+		}
+	/*	printf("Received: ");
 		for (int i = 0; i < len; i++ ){
             printf("%x, ", buf[i]);
         }
-        printf("\n");
+        printf("\n");*/
 
 		if(packet_crc_calc(buf, len) == 0){
            // trans_state.head = buf[0];
@@ -211,13 +256,9 @@ void upload_proc(int dst, unsigned char *file_name, uint8_t filename_len, uint32
                         memcpy((void*)&trans_state.fail_seq, (void*)(buf + 9), trans_state.rec_state);
                         break;
                     }
-                }else
-                    continue;
-           }else
-                continue;
+                }
+           }
 		}
-		else
-			continue;
 	}
 //           ready state
 
@@ -228,29 +269,22 @@ void upload_proc(int dst, unsigned char *file_name, uint8_t filename_len, uint32
 		N = tx_start.f_size/DATA_LEN + 1;
     printf("block_num: %d \n", N);
 
-	unsigned char loss_data[FAIL_NUM];
+	//unsigned char loss_data[FAIL_NUM];
     int i = 0;
 	//for(int i = 0; i < N; i++){
     while(1){
 
-        if (packet_crc_calc(buf, len) == 0){
-
-            printf("rec_file:\n");
-            for (int i = 0; i < len; i++ ){
-                printf("%x, ", buf[i]);
-            }
-            printf("\n");
-
             if(buf[0] = 0xdd){
                 memcpy((void*)&ready_state,(void*)(buf + 5), 4);
                 if(ready_state == 0x00000000){
-                    printf("send finished");
+                    printf("send finished!\n");
                     break;
                 }else if(ready_state == 0xffffffff){
                     printf("error");
+                    break;
                 }else{
                     if(ready_state == 0xfffffffe){
-                        loss_N = 10;
+                        loss_N = PERIOD;
                     }else
                         loss_N = ready_state;
                     for(int j = 0; j < loss_N; j++){
@@ -259,36 +293,48 @@ void upload_proc(int dst, unsigned char *file_name, uint8_t filename_len, uint32
                         else
                             memcpy((void*)&loss_OR, (void*)(buf+9+j*4), 4);
 
-                        printf("LOSS_N = %d", loss_N);
+                      //  printf("LOSS_N = %d", loss_N);
 
                         data_size = file_read(&tx_start, N, loss_OR, data);//loss number
-                        upload_packet_send(dst, data, data_size);
+                        s_data_size = data_precode(data, data_size, data_buf);
+                        upload_packet_send(dst, data_buf, s_data_size);
                         i++;
-                        usleep(100000);
+                        usleep(10000);
                     ////write(can_socket,&loss_data,sizeof(loss_data));
                     }
-                    usleep(100000);
-                    ASK_RES:
-                    printf("------>>>>>>ask state\n");
-                    upload_packet_send(dst, request_state, 6);
-                    len = recv(sockfd, buf, MAX_DATA, 0);
-                    if (len<=0){
-                        printf("goto ASK_RES!\n");
-                        goto ASK_RES;
-                    }
-                    usleep(1000);
-                    printf("i =  %d\n", i);
 
-                }
+                    while(1){
+
+                        usleep(10000);
+
+                        printf("------>>>>>>ask state\n");
+
+                        upload_packet_send(dst, request_state, state_len);
+                        printf("request_state: ");
+                        for(int i = 0; i<6; i++){
+                            printf("%x,", request_state[i]);
+                        }
+                        printf("\n");
+
+                        len = recv(sockfd, buf, MAX_DATA, 0);
+
+                       // printf("len = %d\n", len);
+                        if(len <= 0){
+                            printf("Timeout!!\n");
+                        }else if (packet_crc_calc(buf, len) == 0){
+
+                            printf("rec_file:\n");
+                            for (int i = 0; i < len; i++ ){
+                                printf("%x, ", buf[i]);
+                            }
+                            printf("\n");
+                            break;
+                        }
+                    }
             }
         }
-        else{
-            printf("wrong CRC!\n");
-            goto ASK_RES;
-        }
-	}
+    }
 }
-
 
 
 

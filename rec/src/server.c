@@ -7,13 +7,15 @@
 #include<sys/socket.h>
 #include<sys/wait.h>
 #include"rec.h"
+#include"crc32.h"
 
 #define PORT 1500//端口号
 #define BACKLOG 5/*最大监听数*/
 
 #define MAX_DATA 500//接收到的数据最大程度
-char buf[MAX_DATA];//储存接收数据
+//char buf[MAX_DATA];//储存接收数据
 int sockfd,new_fd;
+uint32_t file_crc;
 
 int main()
 {
@@ -38,6 +40,9 @@ int main()
     my_addr.sin_addr.s_addr=htonl(INADDR_ANY);/*IP，括号内容表示本机IP*/
     bzero(&(my_addr.sin_zero),8);/*将其他属性置0*/
 
+    int reuse0 = 1;
+    setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (char*)&reuse0, sizeof(reuse0));
+
     if(bind(sockfd,(struct sockaddr*)&my_addr,sizeof(struct sockaddr))<0) //绑定地址结构体和socket
     {
         printf("bind error");
@@ -58,18 +63,65 @@ int main()
     }
 
     transfer_state_t state;
-    unsigned char data[500];
+    unsigned char data[MAX_DATA];
+    unsigned char buffer[MAX_DATA];
     uint16_t len;
 
+    memset(data, 0, MAX_DATA);
+    memset(buffer, 0, MAX_DATA);
+
     rec_init(&state);
+
+  /*  FILE *fp = fopen(fdir(state.f_name),"r+");
+    if(fp == NULL)
+    {
+        fp = fopen(fdir(state.f_name),"w+");
+        fclose(fp);
+        fp = fopen(fdir(state.f_name),"r+");
+       // printf("file created\n");
+    }*/
+    int data_len = 0;
+    file_crc = 0xffffffff;
 
     while(1)
     {
 
-        usleep(10000);
         len = recv(new_fd, data, MAX_DATA, 0);//将接收数据打入buf，参数分别是句柄，储存处，最大长度，其他信息（设为0即可）。
-        rec_new_packet(data, len, &state);
+
+       // int j = 0;
+        for(int i = 0; i < len; i++ ){
+            if(data[i] == 0xdb){
+                if(data[i + 1] == 0xdc){
+                    buffer[data_len] = 0xc0;
+                    data_len++;
+                    i++;
+                }else if(data[i + 1] == 0xdd){
+                    buffer[data_len] = 0xdb;
+                    data_len++;
+                    i++;
+                }
+            }else if(data[i] == 0xc0){
+                rec_new_packet(buffer, data_len, &state);
+                memset(buffer, 0, MAX_DATA);
+                data_len = 0;
+
+
+            }else{
+                buffer[data_len] = data[i];
+                data_len++;
+            }
+
+        }
+        //rec_new_packet(data, len, &state);
     }
+   // fclose(fp);
 
     return 0;
 }
+
+
+
+
+
+
+

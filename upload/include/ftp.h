@@ -2,9 +2,10 @@
 #define __UPLOAD_H__
 
 #include <stdint.h>
-#define DATA_LEN 256
+#define DATA_LEN 128
 #define _NAME_LEN_ 20
 #define FAIL_NUM 10
+#define MAX_DATA 500
 
 extern unsigned char path_name[300];
 
