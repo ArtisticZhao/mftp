@@ -222,9 +222,14 @@ void upload_proc(int dst, unsigned char *file_name, uint8_t filename_len, uint32
 		upload_packet_send(dst, request_state, state_len);
 
 		//sleep(1);
-
+        if(sockfd==0){
+            return;
+        }
 		len = recv(sockfd, buf, MAX_DATA, 0);
-
+       /*if(len==-1){
+            printf("socket closed!!!\n");
+            exit(0);
+        }*/
         printf("0xaa:");
 		for(int i = 0; i < frame_len; i++){
             printf("%x, ", r_frame_tx[i]);
@@ -233,6 +238,7 @@ void upload_proc(int dst, unsigned char *file_name, uint8_t filename_len, uint32
 
 	    if (len<=0){
             printf("recall state!\n");
+            printf("sockfd = %d, len = %d\n", sockfd, len);
             usleep(10000);
             continue;
 		}

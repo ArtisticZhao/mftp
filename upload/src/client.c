@@ -8,33 +8,27 @@
 #include<sys/socket.h>
 #include<sys/wait.h>
 
-#define DEST_IP "192.168.43.187"/*目标地址IP，这里设为本机*/
+#define DEST_IP "127.0.0.1"/*目标地址IP，这里设为本机*/
 //#define MAX_DATA 500//接收到的数据最大程度
 
 int sockfd,new_fd;/*cocket句柄和接受到连接后的句柄 */
 void load_parms(char **argv, int *port, char *path, int *f_num);  // 读取运行参数
-
+void lib_entry(char *path, int port, int f_num);
+void close_socketfd();
 void main(int argc, char **argv)
-{   extern unsigned char path_name[300];
+{
+    lib_entry("/home/bg2dgr/Downloads/test.doc", 1500, 10);
+}
+
+void lib_entry(char *path, int port, int f_num){
+
+    extern unsigned char path_name[300];
+    strcpy(path_name, path);
 	uint32_t file_flag;
 	unsigned char file_name[20];
 	uint8_t len;
         memset(file_name,"\0",20);
-    int port;
     // 读取运行参数
-    if (argc == 7)
-    {
-        load_parms(argv, &port, path_name, &file_flag);
-        printf("f_path = %s\n", path_name);
-        printf("l_port = %d\n", port);
-        printf("f_numb = %d\n", file_flag);
-    }
-    else
-    {
-        // 返回使用说明
-        printf("[-f path of file] \n[-p tcp server listen port]\n[-n file number]\n");
-        return 0;
-    }
 
     struct sockaddr_in dest_addr;/*目标地址信息*/
     char buf[MAX_DATA];//储存接收数据
@@ -79,11 +73,13 @@ void main(int argc, char **argv)
 	len = strlen(file_name);
     int dst = 0;
 	upload_proc(dst, file_name, len, file_flag);
-
-   // close(sockfd);//关闭socket
-//    return 0;
 }
 
+void close_socketfd(){
+    printf("exit");
+    close(sockfd);
+    sockfd = 0;
+}
 void load_parms(char **argv, int *port, char *path, int* f_num)
 {
     /*
